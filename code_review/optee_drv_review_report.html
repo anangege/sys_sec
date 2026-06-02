@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>安全审计报告 — 海思密码驱动</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0e14;
+  --bg2: #111820;
+  --bg3: #1a2332;
+  --text: #e6e6e6;
+  --text-dim: #8899aa;
+  --border: #1e2a3a;
+  --critical: #dc2626;
+  --critical-bg: rgba(220,38,38,0.08);
+  --high: #ea580c;
+  --high-bg: rgba(234,88,12,0.08);
+  --medium: #d97706;
+  --medium-bg: rgba(217,119,6,0.06);
+  --low: #16a34a;
+  --low-bg: rgba(22,163,74,0.06);
+  --code-bg: #0d1117;
+  --accent: #22c55e;
+  --sidebar-w: 270px;
+  --font-sans: 'Noto Sans SC', 'DM Sans', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth;font-size:16px}
+body{background:var(--bg);color:var(--text);font-family:var(--font-sans);line-height:1.8;overflow-x:hidden}
+::selection{background:rgba(34,197,94,0.3);color:#fff}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+#progress{position:fixed;top:0;left:0;height:3px;background:var(--accent);z-index:1000;width:0%;transition:width 0.1s}
+.sidebar{position:fixed;top:0;left:0;width:var(--sidebar-w);height:100vh;background:var(--bg2);border-right:1px solid var(--border);overflow-y:auto;z-index:100;padding:24px 0}
+.sidebar-logo{padding:0 20px 20px;border-bottom:1px solid var(--border);margin-bottom:16px}
+.sidebar-logo h1{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent)}
+.sidebar-logo p{font-size:11px;color:var(--text-dim);margin-top:4px}
+.sidebar nav a{display:block;padding:6px 20px;font-size:13px;color:var(--text-dim);border-left:2px solid transparent;transition:all 0.15s;text-decoration:none}
+.sidebar nav a:hover,.sidebar nav a.active{color:var(--text);border-left-color:var(--accent);background:rgba(34,197,94,0.05)}
+.sidebar nav a .sev-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+.sev-critical{background:var(--critical)}
+.sev-high{background:var(--high)}
+.sev-medium{background:var(--medium)}
+.sev-low{background:var(--low)}
+.sev-icon{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.nav-group{font-size:11px;color:var(--text-dim);padding:12px 20px 4px;text-transform:uppercase;letter-spacing:1px;font-weight:600}
+.main{margin-left:var(--sidebar-w);padding:0;max-width:980px}
+.hero{background:linear-gradient(135deg,#0f1923 0%,#1a2332 100%);padding:60px 48px 48px;border-bottom:1px solid var(--border)}
+.hero .tag{display:inline-block;font-family:var(--font-mono);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:2px;color:var(--accent);border:1px solid var(--accent);padding:4px 12px;border-radius:4px;margin-bottom:16px}
+.hero h1{font-size:30px;font-weight:700;line-height:1.3;margin-bottom:8px}
+.hero .subtitle{font-size:17px;color:var(--text-dim);margin-bottom:8px}
+.hero .meta{color:var(--text-dim);font-size:13px;margin-bottom:24px;font-family:var(--font-mono)}
+.hero .meta span{margin-right:24px}
+.hero .desc{font-size:15px;color:#c8d0d8;line-height:1.8}
+.hero .desc strong{color:#fff}
+.dashboard{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:24px}
+.dboard-card{border-radius:8px;padding:20px;text-align:center;border:1px solid var(--border)}
+.dboard-card .num{font-size:36px;font-weight:700;line-height:1;font-family:var(--font-mono)}
+.dboard-card .lbl{font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-top:6px;opacity:0.8}
+.dboard-card.critical{background:var(--critical-bg);border-color:rgba(220,38,38,0.3)}.dboard-card.critical .num{color:var(--critical)}
+.dboard-card.high{background:var(--high-bg);border-color:rgba(234,88,12,0.3)}.dboard-card.high .num{color:var(--high)}
+.dboard-card.medium{background:var(--medium-bg);border-color:rgba(217,119,6,0.3)}.dboard-card.medium .num{color:var(--medium)}
+.dboard-card.low{background:var(--low-bg);border-color:rgba(22,163,74,0.3)}.dboard-card.low .num{color:var(--low)}
+.content{padding:40px 48px 80px}
+.sec{margin-bottom:48px}
+.sec-header{font-size:18px;font-weight:600;margin-bottom:24px;padding-bottom:8px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px}
+.finding{margin-bottom:32px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);overflow:hidden}
+.finding-bar{height:4px}
+.finding-bar.critical{background:var(--critical)}
+.finding-bar.high{background:var(--high)}
+.finding-bar.medium{background:var(--medium)}
+.finding-bar.low{background:var(--low)}
+.finding-body{padding:24px}
+.finding-head{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px}
+.finding-id{font-family:var(--font-mono);font-size:13px;font-weight:700;padding:4px 10px;border-radius:4px;background:var(--bg3)}
+.finding-id.critical{color:var(--critical)}.finding-id.high{color:var(--high)}.finding-id.medium{color:var(--medium)}.finding-id.low{color:var(--low)}
+.finding-cvss{font-family:var(--font-mono);font-size:12px;padding:4px 10px;border-radius:4px;background:var(--bg3);color:var(--text-dim)}
+.finding-file{font-family:var(--font-mono);font-size:12px;color:var(--text-dim);background:var(--bg3);padding:3px 8px;border-radius:3px;display:inline-block;margin-bottom:12px}
+.finding h3{font-size:16px;font-weight:600;margin-bottom:8px}
+.finding p,.finding-desc{font-size:14px;color:#c8d0d8;margin-bottom:12px;line-height:1.8}
+.finding-desc strong,.finding p strong{color:#fff}
+.finding h4{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);margin:16px 0 8px}
+.finding ul{margin:8px 0 12px 20px;font-size:14px;color:#c8d0d8}
+.finding ul li{margin-bottom:4px}
+pre{background:var(--code-bg);border-radius:6px;padding:16px;overflow-x:auto;margin:12px 0;border:1px solid #1a2332;font-size:13px;line-height:1.6;font-family:var(--font-mono)}
+code{font-family:var(--font-mono);font-size:13px}
+pre code{color:#e6e6e6}
+pre .kw{color:#ff79c6}
+pre .tp{color:#8be9fd}
+pre .fn{color:#50fa7b}
+pre .str{color:#f1fa8c}
+pre .cm{color:#6272a4;font-style:italic}
+pre .num{color:#bd93f9}
+pre .op{color:#ff79c6}
+pre .macro{color:#ffb86c}
+.collapse-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;padding:12px 16px;background:var(--bg3);border-radius:6px;margin-bottom:16px;font-size:14px;font-weight:500;transition:background 0.15s}
+.collapse-toggle:hover{background:var(--border)}
+.collapse-toggle .arrow{display:inline-block;transition:transform 0.2s;font-size:12px}
+.collapse-toggle.open .arrow{transform:rotate(90deg)}
+.collapse-body{display:none}
+.collapse-body.open{display:block}
+.table-wrap{overflow-x:auto;margin:16px 0}
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{padding:10px 12px;text-align:left;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);border-bottom:2px solid var(--border)}
+tbody td{padding:10px 12px;border-bottom:1px solid var(--border);color:#c8d0d8}
+tbody tr:hover{background:rgba(255,255,255,0.02)}
+.prio-p0{color:var(--critical);font-weight:700}
+.prio-p1{color:var(--high);font-weight:600}
+.prio-p2{color:var(--medium)}
+.prio-p3{color:var(--low)}
+.meth-box{background:var(--bg3);border-radius:8px;padding:24px;margin-top:32px;border:1px solid var(--border)}
+.meth-box h3{font-size:14px;margin-bottom:12px;color:var(--accent)}
+.meth-box ul{list-style:none;padding:0;font-size:13px;color:var(--text-dim)}
+.meth-box ul li{padding:4px 0;padding-left:16px;position:relative}
+.meth-box ul li::before{content:"\2192";position:absolute;left:0;color:var(--accent)}
+.topbar{display:none;position:fixed;top:0;left:0;right:0;height:56px;background:var(--bg2);border-bottom:1px solid var(--border);z-index:200;padding:0 16px;align-items:center}
+.topbar .menu-btn{background:none;border:none;color:var(--text);font-size:24px;cursor:pointer;padding:8px;display:flex;align-items:center}
+.topbar .top-title{font-size:14px;font-weight:600;margin-left:12px;font-family:var(--font-mono);color:var(--accent)}
+.sidebar-overlay{display:none}
+.footer{text-align:center;padding:32px 48px;border-top:1px solid var(--border);font-size:12px;color:var(--text-dim);font-family:var(--font-mono)}
+@media print{body{background:#fff;color:#000;font-size:12px}:root{--bg:#fff;--bg2:#fff;--bg3:#f5f5f5;--text:#000;--text-dim:#666;--border:#ddd;--code-bg:#f5f5f5}.sidebar{display:none}.main{margin-left:0;padding:0}.topbar{display:none!important}#progress{display:none!important}.hero{background:none;padding:24px}.finding{break-inside:avoid;border:1px solid #ddd}.finding-bar{height:2px}.content{padding:16px 24px}.hero h1{font-size:22px}.dboard-card .num{font-size:24px}.dboard-card.critical,.dboard-card.high,.dboard-card.medium,.dboard-card.low{background:#f5f5f5}pre{background:#f5f5f5;border:1px solid #ddd;font-size:10px}a{color:#000!important;text-decoration:underline!important}.finding-desc,.finding p,table td{color:#333}.finding h3{color:#000}.collapse-body{display:block!important}.collapse-toggle{display:none!important}}
+@media(max-width:900px){
+  .sidebar{transform:translateX(-100%);transition:transform 0.25s}
+  .sidebar.open{transform:translateX(0)}
+  .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99}
+  .sidebar-overlay.open{display:block}
+  .main{margin-left:0;padding-top:56px}
+  .topbar{display:flex}
+  .content{padding:24px 20px 60px}
+  .hero{padding:32px 20px 28px}
+  .hero h1{font-size:22px}
+  .dashboard{grid-template-columns:repeat(2,1fr)}
+  .finding-body{padding:16px}
+}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div class="topbar">
+  <button class="menu-btn" onclick="toggleSidebar()" aria-label="切换导航">&#9776;</button>
+  <span class="top-title">安全审计</span>
+</div>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <h1>Security Audit</h1>
+    <p>海思密码驱动 &middot; OP-TEE OS</p>
+  </div>
+  <nav aria-label="问题导航">
+    <a href="#exec-summary" class="active"><span class="sev-dot" style="background:var(--accent)"></span>执行摘要</a>
+    <div class="nav-group">严重</div>
+    <a href="#CR-01"><span class="sev-dot sev-critical"></span>CR-01 ECDSA 随机数偏置</a>
+    <a href="#CR-02"><span class="sev-dot sev-critical"></span>CR-02 信箱数据丢失</a>
+    <a href="#CR-03"><span class="sev-dot sev-critical"></span>CR-03 PKCS#1 v1.5 预言机</a>
+    <a href="#CR-04"><span class="sev-dot sev-critical"></span>CR-04 OAEP 时序泄露</a>
+    <a href="#CR-05"><span class="sev-dot sev-critical"></span>CR-05 X25519 时序比较</a>
+    <div class="nav-group">高危</div>
+    <a href="#HI-01"><span class="sev-dot sev-high"></span>HI-01 释放后置空错误</a>
+    <a href="#HI-02"><span class="sev-dot sev-high"></span>HI-02 静默分配失败</a>
+    <a href="#HI-03"><span class="sev-dot sev-high"></span>HI-03 IV 长度混淆</a>
+    <div class="nav-group">中危</div>
+    <a href="#MD-01"><span class="sev-dot sev-medium"></span>MD-01 RNG 未检返回值</a>
+    <a href="#MD-02"><span class="sev-dot sev-medium"></span>MD-02 密钥清理不一致</a>
+    <a href="#MD-03"><span class="sev-dot sev-medium"></span>MD-03 空函数指针</a>
+    <a href="#MD-04"><span class="sev-dot sev-medium"></span>MD-04 零大小分配</a>
+    <a href="#MD-05"><span class="sev-dot sev-medium"></span>MD-05 EMSG 信息泄露</a>
+    <a href="#MD-06"><span class="sev-dot sev-medium"></span>MD-06 宏下溢</a>
+    <a href="#MD-07"><span class="sev-dot sev-medium"></span>MD-07 DH 子群攻击</a>
+    <div class="nav-group">低危</div>
+    <a href="#LW-01"><span class="sev-dot sev-low"></span>LW-01 RSA 栈未清零</a>
+    <a href="#LW-02"><span class="sev-dot sev-low"></span>LW-02 蒙哥马利未擦除</a>
+    <a href="#LW-03"><span class="sev-dot sev-low"></span>LW-03 PBKDF2 未清理</a>
+    <div class="nav-group">参考</div>
+    <a href="#remediation"><span class="sev-dot" style="background:var(--accent)"></span>修复优先级</a>
+    <a href="#methodology"><span class="sev-dot" style="background:var(--accent)"></span>方法论</a>
+  </nav>
+</aside>
+<div class="main">
+  <header class="hero" id="exec-summary">
+    <div class="tag">静态代码分析</div>
+    <h1>安全审计报告</h1>
+    <div class="subtitle">海思密码加速器驱动 &mdash; OP-TEE 可信执行环境</div>
+    <div class="meta">
+      <span>&#128197; 2026-05-31</span>
+      <span>&#128196; 审计 25 个源文件</span>
+      <span>审计方: Sisyphus</span>
+    </div>
+    <div class="desc">
+      <p>对 OP-TEE OS 海思密码加速器驱动的静态安全审计共发现 <strong>18 个安全问题</strong>：
+      <strong style="color:var(--critical)">5 个严重</strong>、<strong style="color:var(--high)">4 个高危</strong>、
+      <strong style="color:var(--medium)">7 个中危</strong>、<strong style="color:var(--low)">3 个低危</strong>。</p>
+      <p style="margin-top:6px;font-size:13px;color:var(--text-dim)">
+        审计范围: HPRE (RSA/DH/ECC/Montgomery) &middot; SEC (对称密码/哈希/HMAC/AEAD/PBKDF2) &middot; QM (队列管理)
+      </p>
+    </div>
+    <div class="dashboard">
+      <div class="dboard-card critical"><div class="num">5</div><div class="lbl">严重</div></div>
+      <div class="dboard-card high"><div class="num">4</div><div class="lbl">高危</div></div>
+      <div class="dboard-card medium"><div class="num">7</div><div class="lbl">中危</div></div>
+      <div class="dboard-card low"><div class="num">3</div><div class="lbl">低危</div></div>
+    </div>
+  </header>
+  <div class="content">
+    <section class="sec" id="critical-findings">
+      <div class="sec-header"><span class="sev-icon sev-critical"></span> 严重问题</div>
+      <article class="finding" id="CR-01">
+        <div class="finding-bar critical"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id critical">CR-01</span><span class="finding-cvss">CVSS 9.1</span></div>
+          <div class="finding-file">hpre_ecc.c:860-902 &mdash; gen_random_k()</div>
+          <h3>ECDSA 随机数 k 的高位存在严重偏置</h3>
+          <div class="finding-desc">
+            <p>ECDSA 随机数 <code>k</code> 的高字节从曲线阶 <code>n</code> 确定性地拷贝生成，仅有低字节是随机的：</p>
+<pre><code><span class="kw">for</span> (i = <span class="num">0</span>; i &lt; size; i++) {
+    <span class="kw">if</span> (n[i] &gt; <span class="num">1</span>) {
+        rand_k[i] = n[i] - <span class="num">1</span>;  <span class="cm">// 高位固定为 (n_hi - 1)</span>
+        <span class="kw">break</span>;
+    }
+    rand_k[i] = n[i];
+}
+j = i + <span class="num">1</span>;
+hw_get_random_bytes(rand_k + j, size - j);  <span class="cm">// 仅低字节随机</span></code></pre>
+            <p>熵严重降低：</p>
+            <ul>
+              <li><strong>P-256</strong>: <code>k = 0xFE || 随机(31字节)</code> &rarr; 248 位（丢失 8 位）</li>
+              <li><strong>P-384</strong>: <code>k = 0xFE || 随机(47字节)</code> &rarr; 376 位（丢失 8 位）</li>
+              <li><strong>P-521</strong>: <code>k = 0x01 0xFE || 随机(64字节)</code> &rarr; 512 位（丢失 16 位）</li>
+              <li><strong>SM2</strong>: 模式同 P-256</li>
+            </ul>
+            <p><strong>影响:</strong> ECDSA 随机数偏置可通过格攻击（lattice attack）从数千个签名中恢复私钥，类似于 2010 年 PlayStation 3 ECDSA 私钥泄露事件。</p>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">将 <code>gen_random_k()</code> 重写为在 [1, n-1] 范围内均匀生成随机数：</p>
+<pre><code><span class="kw">do</span> {
+    hw_get_random_bytes(rand_k, size);
+    <span class="cm">// 对非整字节曲线（如 P-521）掩码高位</span>
+    rand_k[<span class="num">0</span>] &amp;= mask;
+} <span class="kw">while</span> (is_zero(rand_k, size) || is_gte(rand_k, n, size));</code></pre>
+        </div>
+      </article>
+      <article class="finding" id="CR-02">
+        <div class="finding-bar critical"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id critical">CR-02</span><span class="finding-cvss">CVSS 8.7</span></div>
+          <div class="finding-file">hisi_qm.c:243-259 &mdash; hisi_qm_mb_read()</div>
+          <h3><code>hisi_qm_mb_read()</code> 丢弃硬件信箱数据</h3>
+          <div class="finding-desc">
+            <p>信箱读取函数错误地使用 <code>*base</code>（调用者传入的零值）覆写了硬件读取后的数据结构：</p>
+<pre><code><span class="kw">static</span> <span class="kw">enum</span> hisi_drv_status hisi_qm_mb_read(<span class="kw">struct</span> hisi_qm *qm, uint64_t *base, ...)
+{
+    qm_mb_init(&amp;mb, cmd, <span class="num">0</span>, qnum, QM_MB_OP_RD);
+    mutex_lock(&amp;qm-&gt;mailbox_lock);
+    ret = qm_mb_nolock(qm, &amp;mb);    <span class="cm">// 从硬件读取数据到 mb</span>
+    mutex_unlock(&amp;qm-&gt;mailbox_lock);
+    <span class="cm">// ...</span>
+    reg_pair_from_64(*base, &amp;mb.base_h, &amp;mb.base_l);  <span class="cm">// BUG: *base(=0) 覆写了 mb 中的数据</span>
+    <span class="cm">// mb 数据未被写回 *base</span>
+    <span class="kw">return</span> HISI_QM_DRVCRYPT_NO_ERR;
+}</code></pre>
+            <p><strong>影响:</strong> <code>qm_get_vft()</code> 始终返回 <code>base=0, num=1</code>，依赖 VFT 正确配置的功能（多队列、SR-IOV）静默故障。</p>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">替换为正确的数据赋值：</p>
+<pre><code>uint64_t val = ((uint64_t)mb.base_h &lt;&lt; <span class="num">32</span>) | mb.base_l;
+*base = val;</code></pre>
+        </div>
+      </article>
+      <article class="finding" id="CR-03">
+        <div class="finding-bar critical"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id critical">CR-03</span><span class="finding-cvss">CVSS 7.4</span></div>
+          <div class="finding-file">hpre_rsa.c:771-807 &mdash; rsaes_pkcs_v1_5_decode()</div>
+          <h3>PKCS#1 v1.5 填充验证存在可区分的错误路径</h3>
+          <div class="finding-desc">
+            <p>PKCS#1 v1.5 解填充函数对多个不同错误条件均返回 <code>TEE_ERROR_BAD_PARAMETERS</code>，但执行路径耗时不同：</p>
+<pre><code><span class="kw">if</span> (em_len &lt; PKCS_V1_5_MSG_MIN_LEN || em[<span class="num">0</span>] != <span class="num">0</span> || em[<span class="num">1</span>] != ENCRYPT_PAD)
+    <span class="kw">return</span> TEE_ERROR_BAD_PARAMETERS;  <span class="cm">// 快速路径</span>
+<span class="cm">// ...</span>
+<span class="kw">if</span> (i &gt;= em_len)
+    <span class="kw">return</span> TEE_ERROR_BAD_PARAMETERS;  <span class="cm">// 中等路径</span>
+<span class="cm">// ...</span>
+<span class="kw">if</span> (em_len - ps_len - PKCS_V1_5_FIXED_LEN &gt; *out_len || ps_len &lt; PKCS_V1_5_PS_MIN_LEN)
+    <span class="kw">return</span> TEE_ERROR_BAD_PARAMETERS;  <span class="cm">// 慢速路径</span></code></pre>
+            <p><strong>影响:</strong> 攻击者可通过时序区分错误类型，发动 <strong>Bleichenbacher 百万消息攻击</strong> 恢复 RSA 明文。</p>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">替换为恒定时间验证块，将所有检查累加到一个状态标志中，仅返回一个通用错误码。</p>
+        </div>
+      </article>
+      <article class="finding" id="CR-04">
+        <div class="finding-bar critical"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id critical">CR-04</span><span class="finding-cvss">CVSS 5.9</span></div>
+          <div class="finding-file">hpre_rsa.c:895 &mdash; rsa_oaep_get_msg()</div>
+          <h3>OAEP 标签比较使用非常恒定时间的 <code>memcmp</code></h3>
+          <div class="finding-desc">
+            <p>OAEP 解码使用标准 <code>memcmp</code> 比较标签哈希：</p>
+<pre><code><span class="kw">if</span> (memcmp(hash, db, lhash_len)) {
+    EMSG(<span class="str">"Hash 不相等"</span>);
+    <span class="kw">return</span> TEE_ERROR_BAD_PARAMETERS;
+}</code></pre>
+            <p><strong>影响:</strong> 产生逐字节的时序预言机，违反了 RSA 解密路径必须恒定时间的原则。</p>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">替换为恒定时间比较：</p>
+<pre><code><span class="type">int</span> ct_neq = <span class="num">0</span>;
+<span class="kw">for</span> (<span class="type">size_t</span> i = <span class="num">0</span>; i &lt; lhash_len; i++)
+    ct_neq |= hash[i] ^ db[i];
+<span class="kw">if</span> (ct_neq) {
+    EMSG(<span class="str">"Hash 不相等"</span>);
+    <span class="kw">return</span> TEE_ERROR_BAD_PARAMETERS;
+}</code></pre>
+        </div>
+      </article>
+      <article class="finding" id="CR-05">
+        <div class="finding-bar critical"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id critical">CR-05</span><span class="finding-cvss">CVSS 5.9</span></div>
+          <div class="finding-file">hpre_montgomery.c:216-220</div>
+          <h3>X25519/X448 坐标比较使用非常恒定时间的 <code>memcmp</code></h3>
+          <div class="finding-desc">
+            <p>在蒙哥马利标量乘法之前，使用 <code>memcmp</code> 检查 u-坐标与域素数：</p>
+<pre><code>ret = memcmp(u + offset, p + offset, dsize);
+<span class="kw">if</span> (ret &gt;= <span class="num">0</span>) {
+    EMSG(<span class="str">"u &gt;= p"</span>);
+    <span class="kw">return</span> HISI_QM_DRVCRYPT_EINVAL;
+}</code></pre>
+            <p><strong>影响:</strong> 逐字节泄露 <code>u</code> 与 <code>p</code> 的比较时序信息，可对 Diffie-Hellman 密钥交换进行时序攻击。</p>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">使用恒定时间的无符号比较替代 <code>memcmp</code>。</p>
+        </div>
+      </article>
+    </section>
+    <section class="sec" id="high-findings">
+      <div class="sec-header"><span class="sev-icon sev-high"></span> 高危问题</div>
+      <article class="finding" id="HI-01">
+        <div class="finding-bar high"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id high">HI-01</span></div>
+          <div class="finding-file">sec_authenc.c:512-515</div>
+          <h3>释放后将错误的指针置 NULL</h3>
+          <div class="finding-desc">
+<pre><code><span class="kw">if</span> (ae_drv_ctx-&gt;dst.data) {
+    free(ae_drv_ctx-&gt;dst.data);
+    ae_drv_ctx-&gt;src.data = NULL;  <span class="cm">// BUG: 应为 dst.data</span>
+}</code></pre>
+            <p><strong>影响:</strong> 若后续检查 <code>dst.data</code> 非 NULL 后访问，则存在释放后使用风险。若 <code>src.data</code> 之前非 NULL 则造成内存泄漏。</p>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8"><code>ae_drv_ctx-&gt;dst.data = NULL;</code></p>
+        </div>
+      </article>
+      <article class="finding" id="HI-02">
+        <div class="finding-bar high"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id high">HI-02</span></div>
+          <div class="finding-file">sec_authenc.c:769-784</div>
+          <h3><code>sec_authenc_copy_state()</code> 静默忽略分配失败</h3>
+          <div class="finding-desc">
+<pre><code><span class="type">void</span> sec_authenc_copy_state(<span class="kw">struct</span> sec_aead_drv_state *dst,
+                             <span class="kw">const</span> <span class="kw">struct</span> sec_aead_drv_state *src)
+{
+    ret = sec_aead_data_alloc(dst);
+    <span class="kw">if</span> (ret)
+        <span class="kw">return</span>;  <span class="cm">// 静默失败 &mdash; dst 处于部分初始化状态</span>
+    <span class="cm">// ...</span>
+}</code></pre>
+            <p><strong>影响:</strong> 调用者继续使用部分初始化的目标上下文，导致释放后使用或空指针解引用。</p>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">将返回类型改为 <code>TEE_Error</code> 并传播失败信息。</p>
+        </div>
+      </article>
+      <article class="finding" id="HI-03">
+        <div class="finding-bar high"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id high">HI-03</span></div>
+          <div class="finding-file">sec_cipher.h:68, sec_cipher.c 全文</div>
+          <h3>IV 数组大小与长度类型不一致</h3>
+          <div class="finding-desc">
+<pre><code><span class="kw">struct</span> sec_cipher_ctx {
+    uint64_t iv[SEC_MAX_IV_SIZE];  <span class="cm">// 2 &times; uint64_t = 16 字节</span>
+    uint8_t iv_len;                <span class="cm">// 最大 255</span>
+    <span class="cm">// ...</span>
+};</code></pre>
+            <p><strong>问题:</strong> <code>iv_len</code> 为 <code>uint8_t</code>（最大 255），但 <code>iv</code> 数组仅 16 字节。若验证被绕过，后续 <code>memcpy(c_ctx-&gt;iv, iv, c_ctx-&gt;iv_len)</code> 将溢出栈缓冲区。</p>
+            <p><strong>影响:</strong> 栈缓冲区溢出，可能导致 TEE 中的内存损坏或代码执行。</p>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">在每次赋值时验证 <code>iv_len</code>：<code>iv_len &gt; sizeof(c_ctx-&gt;iv)</code>。</p>
+        </div>
+      </article>
+    </section>
+    <section class="sec" id="medium-findings">
+      <div class="sec-header"><span class="sev-icon sev-medium"></span> 中危问题</div>
+      <div class="collapse-toggle" id="medToggle" onclick="toggleCollapse('medBody',this)">
+        <span class="arrow">&#9654;</span> <span>展开全部 7 个中危问题</span>
+      </div>
+      <div class="collapse-body" id="medBody">
+      <article class="finding" id="MD-01">
+        <div class="finding-bar medium"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id medium">MD-01</span></div>
+          <div class="finding-file">hpre_dh.c:165, hpre_montgomery.c:133, hpre_ecc.c:889</div>
+          <h3><code>hw_get_random_bytes</code> 返回值未检查</h3>
+          <div class="finding-desc"><p>多处调用 <code>hw_get_random_bytes()</code> 生成私钥、DH 指数和 ECDSA 随机数时未检查返回值。若硬件 RNG 失败或熵不足，密码操作将在弱随机性下继续执行。</p></div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">检查返回值并传播错误。对 ECDSA 签名建议增加软件 RNG 回退。</p>
+        </div>
+      </article>
+      <article class="finding" id="MD-02">
+        <div class="finding-bar medium"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id medium">MD-02</span></div>
+          <div class="finding-file">多个文件</div>
+          <h3>密钥材料清理不一致</h3>
+          <div class="finding-desc"><div class="table-wrap">
+            <table><thead><tr><th>文件</th><th>清理方式</th><th>状态</th></tr></thead>
+            <tbody>
+            <tr><td><code>hpre_dh.c</code></td><td><code>free_wipe()</code></td><td style="color:var(--low)">&#10003; 正确</td></tr>
+            <tr><td><code>hpre_montgomery.c</code></td><td><code>memzero_explicit + free</code></td><td style="color:var(--low)">&#10003; 正确</td></tr>
+            <tr><td><code>sec_authenc.c</code></td><td><code>memzero_explicit</code></td><td style="color:var(--low)">&#10003; 正确</td></tr>
+            <tr><td><code>sec_pbkdf2.c</code></td><td>未对 salt/base_key 清零</td><td style="color:var(--critical)">&#10007; 缺失</td></tr>
+            <tr><td><code>hpre_rsa.c</code></td><td>未对栈变量显式清零</td><td style="color:var(--critical)">&#10007; 缺失</td></tr>
+            </tbody></table></div>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">审计所有处理密钥材料的函数，确保一致地使用 <code>memzero_explicit</code> 或 <code>free_wipe</code>。</p>
+        </div>
+      </article>
+      <article class="finding" id="MD-03">
+        <div class="finding-bar medium"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id medium">MD-03</span></div>
+          <div class="finding-file">hisi_qm.c:783</div>
+          <h3><code>fill_sqe</code> 函数指针未验证</h3>
+          <div class="finding-desc">
+<pre><code>qp-&gt;fill_sqe(sqe, msg);</code></pre>
+            <p><strong>影响:</strong> 调用前未做 NULL 检查，若 QP 创建时未设置 <code>fill_sqe</code> 将导致空指针解引用。</p>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">添加检查：<code>if (!qp-&gt;fill_sqe) return HISI_QM_DRVCRYPT_EINVAL;</code></p>
+        </div>
+      </article>
+      <article class="finding" id="MD-04">
+        <div class="finding-bar medium"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id medium">MD-04</span></div>
+          <div class="finding-file">hpre_rsa.c:147-162</div>
+          <h3>越界密钥使 <code>hpre_rsa_get_hw_kbytes</code> 返回 0</h3>
+          <div class="finding-desc">
+<pre><code><span class="kw">if</span> (key_bits &lt;= <span class="num">1024</span>) size = <span class="num">128</span>;
+<span class="cm">// ...</span>
+<span class="kw">else</span> <span class="kw">if</span> (key_bits &lt;= <span class="num">4096</span>) size = <span class="num">512</span>;
+<span class="kw">else</span> EMSG(<span class="str">"无效的 key_bits[%zu]"</span>, key_bits);
+<span class="cm">// size 对 key_bits &gt; 4096 保持为 0</span></code></pre>
+            <p><strong>影响:</strong> 调用者执行 <code>calloc(1, 0)</code>，行为由实现定义。</p>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">在调用 <code>calloc</code> 之前显式处理错误情况。</p>
+        </div>
+      </article>
+      <article class="finding" id="MD-05">
+        <div class="finding-bar medium"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id medium">MD-05</span></div>
+          <div class="finding-file">hisi_qm.c, hpre_*.c, sec_*.c</div>
+          <h3>错误消息泄露内部状态</h3>
+          <div class="finding-desc">
+            <p>大量 <code>EMSG()</code> 输出寄存器值和内部错误码，若普通世界软件可观察将辅助故障注入分析。</p>
+<pre><code>EMSG(<span class="str">"发送 SQ 门铃失败, hw_sq_tail=%#"</span>PRIx16, qp-&gt;qp_cqe_dma);</code></pre>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">将诊断性 <code>EMSG</code> 置于 <code>CFG_TEE_CORE_LOG_LEVEL &gt;= 3</code> 条件之后。</p>
+        </div>
+      </article>
+      <article class="finding" id="MD-06">
+        <div class="finding-bar medium"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id medium">MD-06</span></div>
+          <div class="finding-file">hpre_main.h:18</div>
+          <h3><code>TASK_LENGTH</code> 宏对较小输入存在下溢</h3>
+          <div class="finding-desc">
+<pre><code><span class="macro">#define TASK_LENGTH(len) ((len) / 8 - 1)</span></code></pre>
+            <p><strong>影响:</strong> 若 <code>len &lt; 8</code>，结果回绕为极大的正值。</p>
+          </div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8"><code>#define TASK_LENGTH(len) (((len) &lt; 8) ? 0 : ((len) / 8 - 1))</code></p>
+        </div>
+      </article>
+      <article class="finding" id="MD-07">
+        <div class="finding-bar medium"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id medium">MD-07</span></div>
+          <div class="finding-file">hpre_dh.c</div>
+          <h3>DH 共享密钥未验证小群组攻击</h3>
+          <div class="finding-desc"><p>DH 计算未检查共享密钥是否为恒等元（1）或小群组元素。</p></div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">DH 计算后验证共享密钥不是全零或等于 1。</p>
+        </div>
+      </article>
+      </div>
+    </section>
+    <section class="sec" id="low-findings">
+      <div class="sec-header"><span class="sev-icon sev-low"></span> 低危问题</div>
+      <div class="collapse-toggle" id="lowToggle" onclick="toggleCollapse('lowBody',this)">
+        <span class="arrow">&#9654;</span> <span>展开全部 3 个低危问题</span>
+      </div>
+      <div class="collapse-body" id="lowBody">
+      <article class="finding" id="LW-01">
+        <div class="finding-bar low"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id low">LW-01</span></div>
+          <div class="finding-file">hpre_rsa.c</div>
+          <h3>RSA 栈变量未显式清零</h3>
+          <div class="finding-desc"><p>RSA 操作中的栈分配缓冲区在函数返回前未使用 <code>memzero_explicit</code> 清除，密钥材料可能残留。</p></div>
+        </div>
+      </article>
+      <article class="finding" id="LW-02">
+        <div class="finding-bar low"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id low">LW-02</span></div>
+          <div class="finding-file">hpre_montgomery.c</div>
+          <h3>蒙哥马利私钥标量未擦除</h3>
+          <div class="finding-desc"><p>私钥标量缓冲区通过 <code>free()</code> 释放前未用 <code>memzero_explicit</code> 擦除。</p></div>
+        </div>
+      </article>
+      <article class="finding" id="LW-03">
+        <div class="finding-bar low"></div>
+        <div class="finding-body">
+          <div class="finding-head"><span class="finding-id low">LW-03</span></div>
+          <div class="finding-file">sec_pbkdf2.c</div>
+          <h3>PBKDF2 盐值和密码未清理</h3>
+          <div class="finding-desc"><p>PBKDF2 消息结构中的 <code>salt</code> 和 <code>base_key</code> 缓冲区位于栈上，操作完成后未清零。</p></div>
+          <h4>修复建议</h4>
+          <p style="font-size:14px;color:#c8d0d8">操作结束时调用 <code>memzero_explicit(msg-&gt;salt, msg-&gt;salt_len)</code> 和 <code>memzero_explicit(msg-&gt;base_key, msg-&gt;key_len)</code>。</p>
+        </div>
+      </article>
+      </div>
+    </section>
+    <section class="sec" id="observations">
+      <div class="sec-header">附加观察</div>
+      <div class="finding" style="margin-bottom:16px">
+        <div class="finding-body">
+          <h3>代码质量</h3>
+          <div class="finding-desc"><ul>
+            <li><strong>释放并擦除抽象:</strong> HPRE 代码中 <code>free_wipe()</code> 使用一致，应推广到 SEC 代码。</li>
+            <li><strong>无释放后使用证据:</strong> 大多数位置遵循了分配/使用/释放后置 NULL 模式（HI-01 除外）。</li>
+            <li><strong>锁机制:</strong> <code>hisi_qm.c</code> 中互斥锁使用符合标准模式，无死锁竞争。</li>
+          </ul></div>
+        </div>
+      </div>
+      <div class="finding">
+        <div class="finding-body">
+          <h3>构建配置</h3>
+          <div class="finding-desc"><ul>
+            <li>模块由 <code>CFG_HISILICON_CRYPTO_DRIVER</code> 和 <code>CFG_HISILICON_ACC_V3</code> 控制。</li>
+            <li>密码算法通过标准 <code>CFG_CRYPTO_*</code> 变量管理。</li>
+          </ul></div>
+        </div>
+      </div>
+    </section>
+    <section class="sec" id="remediation">
+      <div class="sec-header">修复优先级</div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>优先级</th><th>编号</th><th>工作量</th><th>描述</th></tr></thead>
+        <tbody>
+          <tr><td><span class="prio-p0">P0</span></td><td>CR-01</td><td>中</td><td>重写 ECDSA 随机数生成，确保均匀分布</td></tr>
+          <tr><td><span class="prio-p0">P0</span></td><td>CR-02</td><td>小</td><td>修复信箱读取数据赋值</td></tr>
+          <tr><td><span class="prio-p0">P0</span></td><td>CR-03</td><td>中</td><td>恒定时间 PKCS#1 v1.5 解码器</td></tr>
+          <tr><td><span class="prio-p0">P0</span></td><td>CR-04</td><td>小</td><td>OAEP 中替换为 <code>consttime_memcmp</code></td></tr>
+          <tr><td><span class="prio-p0">P0</span></td><td>CR-05</td><td>小</td><td>蒙哥马利路径恒定时间比较</td></tr>
+          <tr><td><span class="prio-p1">P1</span></td><td>HI-01</td><td>极小</td><td>修复 NULL 赋值目标</td></tr>
+          <tr><td><span class="prio-p1">P1</span></td><td>HI-02</td><td>小</td><td>传播分配失败信息</td></tr>
+          <tr><td><span class="prio-p1">P1</span></td><td>HI-03</td><td>小</td><td>添加 IV 长度验证</td></tr>
+          <tr><td><span class="prio-p2">P2</span></td><td>MD-01&ndash;07</td><td>小&ndash;中</td><td>加固改进</td></tr>
+          <tr><td><span class="prio-p3">P3</span></td><td>LW-01&ndash;03</td><td>极小</td><td>补充 <code>memzero_explicit</code> 调用</td></tr>
+        </tbody>
+      </table>
+      </div>
+    </section>
+    <section class="sec" id="methodology">
+      <div class="sec-header">方法论</div>
+      <div class="meth-box">
+        <h3>审计范围与方法</h3>
+        <ul>
+          <li><strong>类型:</strong> 静态代码审查</li>
+          <li><strong>方法:</strong> 逐行人工阅读全部 25 个源文件（14 个 <code>.c</code>、10 个 <code>.h</code>、1 个 <code>.mk</code>）</li>
+          <li><strong>重点:</strong> 内存安全、密码实现正确性、恒定时间规范、输入验证、DMA/硬件接口安全、错误处理</li>
+          <li><strong>局限:</strong> 未动态分析、无硬件验证、未做模糊测试。硬件行为从驱动代码推断。</li>
+        </ul>
+      </div>
+    </section>
+    <footer class="footer">
+      由 Sisyphus 生成 &middot; 2026-05-31 &middot; OP-TEE OS &mdash; 海思密码驱动安全审计
+    </footer>
+  </div>
+</div>
+<script>
+window.addEventListener('scroll',function(){var h=document.documentElement.scrollHeight-window.innerHeight;var p=(window.scrollY/h)*100;document.getElementById('progress').style.width=p+'%'});
+var sections=document.querySelectorAll('.finding,#exec-summary,#remediation,#methodology,#observations');
+var navLinks=document.querySelectorAll('.sidebar nav a');
+window.addEventListener('scroll',function(){var current='';sections.forEach(function(s){var top=s.offsetTop-120;if(window.scrollY>=top)current=s.id});navLinks.forEach(function(a){a.classList.remove('active');if(a.getAttribute('href')==='#'+current)a.classList.add('active')})});
+function toggleCollapse(id,btn){var body=document.getElementById(id);var isOpen=body.classList.toggle('open');btn.classList.toggle('open');var count=id==='medBody'?'7':'3';var type=id==='medBody'?'中危':'低危';btn.querySelector('span').textContent=isOpen?'收起':'展开全部 '+count+' 个'+type+'问题'}
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('sidebarOverlay').classList.toggle('open')}
+</script>
+</body>
+</html>
