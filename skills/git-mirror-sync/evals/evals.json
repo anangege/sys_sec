@@ -1,0 +1,23 @@
+{
+  "skill_name": "git-mirror-sync",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "我们仓库有两个 remote：origin（内网 GitLab）和 github（GitHub mirror）。当前在 main 分支上，本地领先 origin/main 大概 200 个 commit。帮我把这些 commit 同步到 github。",
+      "expected_output": "Skill identifies remotes, estimates pack size (< 2GB), and does a single git push from local main to github/main.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "我刚从上游 clone 了一个超大内核仓库，想推到我的 GitHub mirror 上。有 30 多万个 commit，repo 打包后 3.2GB。帮我把 OLK-6.6 分支同步到 github。",
+      "expected_output": "Skill detects pack size exceeds 2GB, uses batch push strategy (scripts/push-batches.sh) to push in increments, then verifies.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "检查一下我们本地和 GitHub mirror 的差异，看看还有多少 commit 没推过去。如果不多就直接推，太多就分批推。",
+      "expected_output": "Skill updates remote tracking, counts pending commits, estimates pack size, and chooses appropriate push strategy based on size.",
+      "files": []
+    }
+  ]
+}
