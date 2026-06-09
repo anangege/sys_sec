@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ARM SMMUv3 + CCA 驱动架构深度分析 — OpenEuler OLK-6.6</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-card: #161b22;
+    --bg-code: #1c2128;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #d29922;
+    --accent4: #f85149;
+    --purple: #bc8cff;
+    --cyan: #39d2c0;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', Helvetica, Arial, sans-serif;
+    line-height: 1.7;
+    font-size: 15px;
+  }
+
+  /* header */
+  .hero {
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1c2128 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 48px 24px 36px;
+    text-align: center;
+  }
+  .hero h1 {
+    font-size: 28px;
+    color: var(--accent);
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+  .hero .subtitle {
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .hero .badge {
+    display: inline-block;
+    margin: 12px 4px 0;
+    padding: 3px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+  }
+  .badge-blue { background: rgba(88,166,255,0.15); color: var(--accent); border-color: rgba(88,166,255,0.3); }
+  .badge-green { background: rgba(63,185,80,0.15); color: var(--accent2); border-color: rgba(63,185,80,0.3); }
+  .badge-purple { background: rgba(188,140,255,0.15); color: var(--purple); border-color: rgba(188,140,255,0.3); }
+  .badge-orange { background: rgba(210,153,34,0.15); color: var(--accent3); border-color: rgba(210,153,34,0.3); }
+
+  /* toc */
+  .toc {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+  .toc h2 {
+    font-size: 14px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 12px;
+  }
+  .toc-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .toc a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 13px;
+    padding: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    transition: all 0.15s;
+  }
+  .toc a:hover {
+    background: rgba(88,166,255,0.1);
+    border-color: var(--accent);
+  }
+
+  /* main content */
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  section {
+    margin-bottom: 40px;
+  }
+
+  h2 {
+    font-size: 22px;
+    color: var(--accent);
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  h2 .sec-num {
+    font-size: 14px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-size: 17px;
+    color: var(--text);
+    margin: 20px 0 10px;
+  }
+  h4 {
+    font-size: 14px;
+    color: var(--text-dim);
+    margin: 14px 0 6px;
+    font-weight: 600;
+  }
+
+  p {
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+
+  /* cards */
+  .info-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 12px 0;
+    border-left: 3px solid var(--accent);
+  }
+  .info-card.green { border-left-color: var(--accent2); }
+  .info-card.purple { border-left-color: var(--purple); }
+  .info-card.orange { border-left-color: var(--accent3); }
+
+  .info-card .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+  }
+  .info-card .title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  /* lists */
+  ul, ol {
+    padding-left: 20px;
+    margin-bottom: 12px;
+  }
+  li { margin-bottom: 4px; }
+
+  code {
+    font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 13px;
+    background: var(--bg-code);
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 12px 0;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--text);
+  }
+
+  /* mermaid */
+  .mermaid-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    margin: 16px 0;
+    overflow-x: auto;
+  }
+  .mermaid-box svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 13px;
+  }
+  th, td {
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    text-align: left;
+  }
+  th {
+    background: var(--bg-card);
+    color: var(--text-dim);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  td { background: var(--bg); }
+
+  .tag {
+    display: inline-block;
+    padding: 0 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .tag-impl { background: rgba(63,185,80,0.15); color: var(--accent2); }
+  .tag-infra { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .tag-cca { background: rgba(188,140,255,0.15); color: var(--purple); }
+  .tag-hw { background: rgba(210,153,34,0.15); color: var(--accent3); }
+
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 22px; }
+    .container { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ HERO ============ -->
+<div class="hero">
+  <h1>🔲 ARM SMMUv3 + CCA 驱动架构深度分析</h1>
+  <div class="subtitle">基于 OpenEuler OLK-6.6 内核 · arm-smmu-v3 驱动族 · HiSilicon CCA Domain Access</div>
+  <div>
+    <span class="badge badge-blue">SMMUv3 Core</span>
+    <span class="badge badge-green">arm-smmu-v3.c</span>
+    <span class="badge badge-green">arm-smmu-v3-iommufd.c</span>
+    <span class="badge badge-purple">arm-r-smmu-v3.c</span>
+    <span class="badge badge-orange">hisi-cca-da.c</span>
+  </div>
+</div>
+
+<!-- ============ TOC ============ -->
+<div class="toc">
+  <h2>📋 目录</h2>
+  <div class="toc-grid">
+    <a href="#sec1">1. SMMUv3 硬件背景</a>
+    <a href="#sec2">2. 核心数据结构</a>
+    <a href="#sec3">3. arm-smmu-v3.c 主驱动</a>
+    <a href="#sec4">4. arm-smmu-v3-iommufd.c</a>
+    <a href="#sec5">5. arm-r-smmu-v3.c Realm SMMU</a>
+    <a href="#sec6">6. hisi-cca-da.c CCA DA</a>
+    <a href="#sec7">7. RMI 接口与 SMC 层</a>
+    <a href="#sec8">8. 整体数据流</a>
+    <a href="#sec9">9. 关键差异总结</a>
+  </div>
+</div>
+
+<div class="container">
+
+<!-- ============ SECTION 1 ============ -->
+<section id="sec1">
+<h2><span class="sec-num">1</span> SMMUv3 硬件背景</h2>
+
+<div class="info-card">
+  <div class="label">Background</div>
+  <div class="title">什么是 SMMUv3？</div>
+  <p><strong>SMMU</strong> (System Memory Management Unit) v3 是 ARM 架构的 IOMMU 标准，v3 版本引入了大量从 CPU MMU 借鉴的设计理念。它为 PCIe 和 AMBA 总线上的 DMA 设备提供地址翻译和保护，是虚拟化、机密计算和 DMA 安全的关键组件。</p>
+</div>
+
+<h3>1.1 核心硬件概念</h3>
+
+<table>
+  <tr><th>概念</th><th>说明</th></tr>
+  <tr><td><strong>Stream (流)</strong></td><td>一次 DMA 事务，由 Stream ID (SID) 标识，类似 CPU 的 ASID。每个 PCIe 设备 function 分配一个 SID。</td></tr>
+  <tr><td><strong>STE (Stream Table Entry)</strong></td><td>流表项，硬件查找 SID 得到 STE，决定翻译策略：bypass、stage-1、stage-2、或嵌套 (nested)。</td></tr>
+  <tr><td><strong>CD (Context Descriptor)</strong></td><td>上下文描述符，用于 Stage-1 翻译，包含页表指针、ASID、TCR 等，类似 CPU 的 TTBR0_EL1。</td></tr>
+  <tr><td><strong>Stage-1 (S1)</strong></td><td>VA → IPA 翻译，对应 Guest OS 页表，类似 CPU EL1/0 翻译。</td></tr>
+  <tr><td><strong>Stage-2 (S2)</strong></td><td>IPA → PA 翻译，对应 Hypervisor 页表，类似 CPU EL2 Stage-2 翻译。</td></tr>
+  <tr><td><strong>CMD Queue</strong></td><td>命令队列，软件写入 TLB 刷写 (TLBI)、配置失效 (CFGI)、同步 (SYNC) 等命令。</td></tr>
+  <tr><td><strong>EVT Queue</strong></td><td>事件队列，硬件报告翻译故障、配置错误等事件。</td></tr>
+  <tr><td><strong>PRI Queue</strong></td><td>PRI (Page Request Interface) 队列，PCIe PRI 协议支持，用于 SVA (Shared Virtual Addressing)。</td></tr>
+  <tr><td><strong>ECMDQ</strong></td><td>扩展命令队列，per-CPU 私有命令队列，减少锁竞争 (硬件可选特性)。</td></tr>
+</table>
+
+<h3>1.2 地址翻译路径</h3>
+
+<div class="mermaid-box">
+<div class="mermaid">
+flowchart LR
+  A["PCIe Device DMA<br/><i>发出 VA (SVA) 或 IPA</i>"] --> B["SMMUv3 硬件"]
+  B --> C{"SID → STE 查找"}
+  C --> D["Bypass<br/><i>直通，不翻译</i>"]
+  C --> E["Stage-1 (VA→IPA)<br/><i>查 CD 中的 S1 页表</i>"]
+  C --> F["Stage-2 (IPA→PA)<br/><i>查 STE 中的 S2 页表</i>"]
+  C --> G["Nested (S1+S2)<br/><i>两次翻译</i>"]
+  E --> H["PA → 内存"]
+  F --> H
+  G --> H
+  H --> I["🔒 同时检查<br/>访问权限"]
+</div>
+</div>
+
+<h3>1.3 命令同步机制</h3>
+<p>SMMUv3 通过 CMD_SYNC 命令保证命令队列之前的命令已被硬件消费完毕。三种同步完成检测方式：</p>
+
+<div class="info-card green">
+  <div class="label">Sync Methods</div>
+  <ul>
+    <li><strong>SEV</strong> — 发送 SEV (Send Event) 唤醒轮询的 CPU，通过轮询 CONS 指针完成，延迟低但占用 CPU</li>
+    <li><strong>MSI</strong> — 命令完成后发送 MSI 中断，释放 CPU 资源，延迟较高但适合异步场景</li>
+    <li><strong>Polling</strong> — 直接在 CONS 寄存器上轮询，模块参数 <code>disable_msipolling</code> 可禁用 MSI polling</li>
+  </ul>
+</div>
+</section>
+
+<!-- ============ SECTION 2 ============ -->
+<section id="sec2">
+<h2><span class="sec-num">2</span> 核心数据结构</h2>
+
+<p>所有数据结构定义在 <code>arm-smmu-v3.h</code> (1135 行)。以下为最关键的结构体：</p>
+
+<h3>2.1 <code>struct arm_smmu_device</code> — SMMU 实例</h3>
+<p>代表一个 SMMUv3 硬件控制器，是驱动中最核心的结构体：</p>
+<pre><code>struct arm_smmu_device {
+    struct device           *dev;          // 平台设备
+    void __iomem            *base;         // MMIO 基址 (CR0/STRTAB/CMDQ 等)
+    void __iomem            *page1;        // page 1 (EVTQ/PRIQ 等)
+
+    u32 features;   // ARM_SMMU_FEAT_* 位掩码:
+
+    /* 关键 feature 位 */
+    ARM_SMMU_FEAT_2_LVL_STRTAB  // 二级流表 (vs 线性)
+    ARM_SMMU_FEAT_TRANS_S1      // 支持 Stage-1
+    ARM_SMMU_FEAT_TRANS_S2      // 支持 Stage-2
+    ARM_SMMU_FEAT_COHERENCY     // 硬件一致性 (COHACC)
+    ARM_SMMU_FEAT_E2H           // EL2 E2H 模式
+    ARM_SMMU_FEAT_NESTING       // 嵌套翻译 (用于 iommufd)
+    ARM_SMMU_FEAT_ECMDQ         // 扩展 CMDQ
+    ARM_SMMU_FEAT_S2FWB         // Stage-2 Force Write-Back
+    ARM_SMMU_FEAT_SVA           // Shared Virtual Addressing
+
+    struct arm_smmu_cmdq       cmdq;     // 主命令队列
+    struct arm_smmu_evtq       evtq;     // 事件队列
+    struct arm_smmu_priq       priq;     // PRI 队列
+
+    unsigned int asid_bits, vmid_bits;   // ASID/VMID 位宽
+    unsigned int sid_bits, ssid_bits;    // SID/SSID 位宽
+    unsigned long ias, oas;              // 输入/输出地址空间大小
+
+    struct arm_smmu_strtab_cfg strtab_cfg;  // 流表配置
+
+    #ifdef CONFIG_HISI_CCADA_HOST
+    struct realm_smmu_device    realm;   // Realm SMMU 实例 (R-SMMU)
+    #endif
+};</code></pre>
+
+<h3>2.2 <code>struct arm_smmu_domain</code> — IOMMU 域</h3>
+<pre><code>struct arm_smmu_domain {
+    struct arm_smmu_device      *smmu;
+    struct io_pgtable_ops       *pgtbl_ops;  // 页表操作
+
+    enum arm_smmu_domain_stage   stage;   // S1 或 S2
+    union {
+        struct arm_smmu_ctx_desc  cd;      // Stage-1: ASID + 页表
+        struct arm_smmu_s2_cfg    s2_cfg;  // Stage-2: VMID
+    };
+
+    struct iommu_domain          domain;  // 嵌入 iommu_domain
+    bool nest_parent;                     // 是嵌套父域 (用于 iommufd)
+
+    #ifdef CONFIG_HISI_CCADA_HOST
+    bool realm;      // 属于 Realm
+    bool pcipc_ns;   // 属于 PCIe PCi-NS (Non-Secure passthrough)
+    #endif
+};</code></pre>
+
+<h3>2.3 <code>struct realm_smmu_device</code> — Realm SMMU 实例 (R-SMMU)</h3>
+<pre><code>/* drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3.h, #ifdef CONFIG_HISI_CCADA_HOST */
+struct realm_smmu_device {
+    resource_size_t              ioaddr;       // Realm SMMU 寄存器 PA (通过 RMI 访问)
+
+    struct realm_smmu_queue      rcmdq;        // Realm 命令队列 (R-CMDQ)
+    struct realm_smmu_queue      revtq;        // Realm 事件队列 (R-EVTQ)
+    struct realm_smmu_strtab_cfg strtab_cfg;   // Realm 流表
+
+    int rgerr_irq;                             // Realm GERROR 中断
+
+    unsigned long *sid_bitmap;   // 已附加的 Realm SID 位图
+    unsigned long *vmid_bitmap;  // 已附加的 Realm VMID 位图
+    rwlock_t        fwd_lock;    // 命令转发锁
+
+    bool support_msi;            // 支持 MSI 中断
+    bool forward_cmd;            // 开启命令转发
+    bool enabled;                // R-SMMU 已使能
+};</code></pre>
+
+<h3>2.4 <code>struct arm_smmu_master</code> — 设备主控</h3>
+<p>代表一个连接到 SMMU 的 master 设备 (通常是 PCIe function)：</p>
+<pre><code>struct arm_smmu_master {
+    struct arm_smmu_device      *smmu;
+    struct device               *dev;
+    struct arm_smmu_stream      *streams;    // 该设备的流 ID 列表
+    unsigned int                 num_streams;
+    struct arm_smmu_ctx_desc_cfg cd_table;   // Context Descriptor 表
+    bool ats_enabled;                        // PCIe ATS 已使能
+    bool stall_enabled;                      // PCIe Stall 已使能
+    bool sva_enabled;                        // SVA 已使能
+};</code></pre>
+
+<h3>2.5 <code>struct realm_dev_entry</code> — Realm 设备条目 (hisi-cca-da.c)</h3>
+<pre><code>struct realm_dev_entry {
+    struct device *dev;
+    u64 vttbr;           // Realm VTTBR (Stage-2 页表根)
+    u64 ns_vttbr;        // Non-Secure VTTBR
+    u64 msi_iova;        // MSI IOVA 地址
+    u64 msi_page_index;  // MSI 页面索引
+    bool realm;          // 是 Realm 设备
+    bool pcipc_ns;       // 是 PCi-NS 设备 (非安全直通)
+    struct hlist_node node; // 哈希表节点
+};</code></pre>
+
+</section>
+
+<!-- ============ SECTION 3 ============ -->
+<section id="sec3">
+<h2><span class="sec-num">3</span> arm-smmu-v3.c — 主驱动 (5907 行)</h2>
+
+<div class="info-card">
+  <div class="label">Tag</div>
+  <div class="title">SMMUv3 Core Driver — IOMMU API 实现</div>
+  <p>作者 Will Deacon (ARM)，"Powered by bad coffee and bombay mix"。实现了标准 Linux IOMMU 子系统回调，管理硬件队列、流表、页表和中断。架构如下：</p>
+</div>
+
+<h3>3.1 初始化流程</h3>
+
+<div class="mermaid-box">
+<div class="mermaid">
+flowchart TD
+  A["platform_driver.probe<br/>arm_smmu_device_probe()"] --> B["读取 IDR0/IDR1/IDR5<br/>探测硬件能力"]
+  B --> C["填充 features 位掩码<br/>支持 S1/S2/COHACC/MSI/ATS 等"]
+  C --> D["arm_smmu_init_structures()"]
+  D --> E["arm_smmu_init_queues()<br/>CMD/EVT/PRI 队列初始化"]
+  D --> F["arm_smmu_init_strtab()<br/>流表初始化 (线性/二级)"]
+  F --> G{"STRTAB 格式?"}
+  G --> H["arm_smmu_init_strtab_linear()<br/>SID 线性映射"]
+  G --> I["arm_smmu_init_strtab_2lvl()<br/>L1 + L2 二级查表"]
+  D --> J["中断注册<br/>EVTQ / GERROR / PRIQ / Combined"]
+  J --> K["iommu_device_register()<br/>注册到 IOMMU 核心"]
+  K --> L["arm_r_smmu_device_init()<br/>#ifdef CONFIG_HISI_CCADA_HOST"]
+</div>
+</div>
+
+<h3>3.2 命令队列实现</h3>
+<p>命令队列是 SMMUv3 软件与硬件交互的核心通道：</p>
+
+<pre><code>// 核心入口 — 批处理提交命令到队列
+int arm_smmu_cmdq_issue_cmdlist(
+    struct arm_smmu_device *smmu,
+    struct arm_smmu_cmdq *cmdq,
+    u64 *cmds, int n, bool sync)
+{
+    // 1. 加锁 (spinlock / ECMDQ per-CPU)
+    // 2. 检查 valid_map 找到空闲槽位
+    // 3. memcpy 写入队列 base + prod 偏移
+    // 4. 更新 PROD 寄存器通知硬件
+    // 5. 如果 sync==true, 等待 CMD_SYNC 完成
+    //    使用 MSI/SEV 或轮询 CONS 指针
+}</code></pre>
+
+<p><strong>命令类型</strong> (opcode)：</p>
+<table>
+  <tr><th>命令</th><th>Opcode</th><th>用途</th></tr>
+  <tr><td>CFGI_STE</td><td>0x03</td><td>使能指定的 STE (Stream Table Entry)</td></tr>
+  <tr><td>CFGI_CD</td><td>0x05</td><td>使能指定的 CD (Context Descriptor)</td></tr>
+  <tr><td>TLBI_NH_VA</td><td>0x12</td><td>Non-Secure EL1&0 VA 范围失效</td></tr>
+  <tr><td>TLBI_S2_IPA</td><td>0x2a</td><td>Stage-2 IPA 范围失效</td></tr>
+  <tr><td>TLBI_EL2_ALL</td><td>0x20</td><td>EL2 全 TLB 失效</td></tr>
+  <tr><td>ATC_INV</td><td>0x40</td><td>PCIe ATC (Address Translation Cache) 失效</td></tr>
+  <tr><td>CMD_SYNC</td><td>0x46</td><td>命令同步屏障</td></tr>
+</table>
+
+<h3>3.3 域管理 (Domain)</h3>
+
+<div class="mermaid-box">
+<div class="mermaid">
+flowchart LR
+  A["arm_smmu_domain_alloc_paging()"] --> B["分配 arm_smmu_domain"]
+  B --> C{"设备类型?"}
+  C --> D["S1: alloc io_pgtable<br/>ASID 分配"]
+  C --> E["S2: alloc io_pgtable<br/>VMID 分配"]
+  D --> F["arm_smmu_attach_dev()"]
+  E --> F
+  F --> G["arm_smmu_attach_prepare()<br/>配置 STE/CD"]
+  G --> H["arm_smmu_install_ste_for_dev()<br/>写入 STE 到流表"]
+  H --> I["arm_smmu_attach_commit()<br/>使能"]
+</div>
+</div>
+
+<h3>3.4 关键设计点</h3>
+
+<div class="info-card green">
+  <div class="label">Design Highlights</div>
+  <ul>
+    <li><strong>STE 写入使用 CMX 比较-交换模式</strong> (compare-and-swap) 保证原子性，SEE <code>arm_smmu_write_entry()</code></li>
+    <li><strong>ECMDQ (per-CPU 私有 CMDQ)</strong> 绕过主 CMDQ 的锁竞争，对性能敏感场景至关重要，需硬件支持 IDR1.ECMDQ</li>
+    <li><strong>二级流表 (2-level STR)</strong> 支持稀疏 SID 空间，L1 表 + L2 表延迟分配，避免线性表的连续大块物理内存需求</li>
+    <li><strong>PRI + IOPF</strong> 集成 <code>io-pgfault</code> 框架，支持 SVA 的按需页调度</li>
+    <li><strong>MSI Polling</strong> 通过 MSI 中断完成 CMD_SYNC 通知，使用模块参数 <code>disable_msipolling</code> 控制</li>
+    <li><strong>TLBI 范围失效 (Range Invalidation)</strong> 利用硬件 IDR3.RIL 特性批量失效，减少命令队列压力</li>
+  </ul>
+</div>
+
+<h3>3.5 SMMU 旁路设备 (Bypass)</h3>
+<p>通过内核启动参数 <code>smmu.bypassdev=</code> 指定 PCIe VID:DID 的设备使用 identity mapping (S1 bypass)，用于调试或特定加速器场景。</p>
+
+</section>
+
+<!-- ============ SECTION 4 ============ -->
+<section id="sec4">
+<h2><span class="sec-num">4</span> arm-smmu-v3-iommufd.c — IOMMUFD 接口 (412 行)</h2>
+
+<div class="info-card">
+  <div class="label">Tag</div>
+  <div class="title">IOMMUFD Nested Domain — VMM 级虚拟 SMMU</div>
+  <p>由 NVIDIA 贡献 (2024)，为 VMM (如 QEMU) 提供嵌套翻译支持，允许 Guest VM 直接管理 Stage-1 页表，Hypervisor 仅管理 Stage-2。</p>
+</div>
+
+<h3>4.1 核心架构</h3>
+
+<div class="mermaid-box">
+<div class="mermaid">
+flowchart LR
+  subgraph "VMM / QEMU"
+    A["iommufd 用户态"]
+  end
+  subgraph "KVM + IOMMUFD 内核"
+    B["arm_vsmmu (virtual SMMU)"]
+    C["arm_smmu_nested_domain"]
+    D["arm_smmu_domain (S2 parent)"]
+  end
+  subgraph "SMMUv3 硬件"
+    E["STE[config=NESTED]<br/>S2 table + S1 CD table"]
+  end
+
+  A -->|"IOMMU_VIOMMU_TYPE_ARM_SMMUV3"| B
+  A -->|"IOMMU_HWPT_ALLOC_NESTED"| C
+  B -->|"关联"| D
+  C -->|"attach_dev"| E
+  D -->|"S2页表基址"| E
+  B -->|"cache_invalidate"| D
+  D -->|"TLBI commands"| E
+</div>
+</div>
+
+<h3>4.2 关键接口</h3>
+
+<table>
+  <tr><th>函数</th><th>作用</th></tr>
+  <tr><td><code>arm_vsmmu_alloc()</code></td><td>创建虚拟 SMMU 实例 <code>struct arm_vsmmu</code>，关联 S2 parent domain 和 VMID</td></tr>
+  <tr><td><code>arm_vsmmu_alloc_domain_nested()</code></td><td>从用户态传入的 vSTE 创建嵌套域，验证合法性后生成 <code>arm_smmu_nested_domain</code></td></tr>
+  <tr><td><code>arm_smmu_attach_dev_nested()</code></td><td>安装嵌套 STE (S2 + 用户 CD table 或 bypass/abort)，转发 ATS 状态</td></tr>
+  <tr><td><code>arm_vsmmu_cache_invalidate()</code></td><td>将 Guest 发起的 TLB 失效命令 (TLBI/ATC_INV/CFGI) 转换后提交到物理 CMDQ</td></tr>
+  <tr><td><code>arm_smmu_hw_info()</code></td><td>导出 IDR/IIDR/AIDR 寄存器信息到用户态，用于 VMM 识别硬件能力</td></tr>
+  <tr><td><code>arm_smmu_validate_vste()</code></td><td>验证用户态传入的虚拟 STE 合法性 (CFG/EATS 等字段)</td></tr>
+</table>
+
+<h3>4.3 命令转发与 VSID → SID 映射</h3>
+
+<pre><code>// Guest 发送 TLBI 命令 → 内核验证并转换 VMID/SID
+static int arm_vsmmu_convert_user_cmd(struct arm_vsmmu *vsmmu,
+                                       struct arm_vsmmu_invalidation_cmd *cmd)
+{
+    // 1. 将 Guest 的小端命令转换为主机 CPU 字节序
+    // 2. 覆写 VMID 为物理 VMID (vsmmu->vmid)
+    // 3. 将 VSID (虚拟 SID) 通过 xarray 查找转换为物理 SID
+    // 4. 特殊处理 TLB_NSNH_ALL → TLBI_NH_ALL 转换
+    // 然后提交到 arm_smmu_cmdq_issue_cmdlist()
+}</code></pre>
+
+<div class="info-card orange">
+  <div class="label">Key Insight</div>
+  <p>嵌套翻译的核心：<strong>Guest 管理 S1 页表 (CD), Host 管理 S2 页表 (STE.S2TTB)</strong>。STE.CFG = NESTED (0b111) 表示硬件需要先查 CD 再做 S2 翻译。</p>
+</div>
+
+</section>
+
+<!-- ============ SECTION 5 ============ -->
+<section id="sec5">
+<h2><span class="sec-num">5</span> arm-r-smmu-v3.c — Realm SMMU (821 行)</h2>
+
+<div class="info-card purple">
+  <div class="label">Tag</div>
+  <div class="title">Realm SMMU — ARM CCA 机密计算扩展</div>
+  <p>基于 <code>CONFIG_HISI_CCADA_HOST</code> 编译，为 ARM CCA (Confidential Compute Architecture) 的 Realm 提供隔离的 SMMU 管理能力。所有硬件访问通过 RMI SMC 调用委托给 RMM (Realm Management Monitor) 固件。</p>
+</div>
+
+<h3>5.1 设计思想</h3>
+
+<p>ARM CCA 引入 <strong>Realm</strong> 概念 — 比 TrustZone 更强的隔离执行环境。Realm 中的 DMA 设备需要 SMMU 翻译，但 Host 内核 (Non-Secure EL2) 不能直接访问 Realm 的 SMMU 寄存器。R-SMMU 的设计模式是：</p>
+
+<ul>
+  <li><strong>双 SMMU 实例</strong>：每个物理 SMMU 硬件在逻辑上分为 <code>arm_smmu_device</code> (NS SMMU) 和 <code>realm_smmu_device</code> (R-SMMU)，共享同一组物理寄存器地址空间</li>
+  <li><strong>RMI 封装</strong>：所有 R-SMMU 寄存器访问通过 <code>rmi_smmu_reg_read32/write32</code> → <code>arm_smccc_1_2_smc</code> → RMM 完成</li>
+  <li><strong>命令转发 (Command Forwarding)</strong>：非安全侧提交 CMDQ 命令时，筛选出影响 Realm 的命令 (TLBI/CFGI 等)，复制到 R-CMDQ 由 RMM 执行</li>
+  <li><strong>独立队列</strong>：R-CMDQ 和 R-EVTQ 是独立于 NS CMDQ/EVTQ 的队列，通过 <code>granule_delegate</code> 将队列内存委托给 Realm 世界</li>
+</ul>
+
+<h3>5.2 初始化流程 (<code>arm_r_smmu_device_init</code>)</h3>
+
+<div class="mermaid-box">
+<div class="mermaid">
+flowchart TD
+  A["arm_r_smmu_device_init(smmu, ioaddr)"] --> B{"is_support_rme()?"}
+  B -->|"No"| X["return"]
+  B -->|"Yes"| C["rmi_smmu_reg_read32<br/>SMMU_R_IDR0"]
+  C --> D["检测 MSI 支持<br/>realm->support_msi"]
+  D --> E["写入 CR2.E2H (如支持)"]
+  E --> F["分配 SID/VMID 位图<br/>初始化 fwd_lock"]
+  F --> G["realm_smmu_init_queue()<br/>R-CMDQ"]
+  G --> H["realm_smmu_write_reg_sync()<br/>CR0: CMDQEN | ATSCHK"]
+  H --> I["realm_smmu_init_queue()<br/>R-EVTQ"]
+  I --> J["CR0: 增加 EVTQEN"]
+  J --> K["realm_smmu_init_strtab()<br/>Realm 流表 (线性/二级)"]
+  K --> L["realm_smmu_setup_unique_irqs()<br/>R-EVTQ + R-GERROR MSI"]
+  L --> M["CR0: SMMUEN → 使能"]
+  M --> N["realm->enabled = true"]
+</div>
+</div>
+
+<h3>5.3 命令转发机制</h3>
+
+<p>这是 R-SMMU 最精妙的设计。当 NS SMMU 驱动提交命令到 CMDQ 时，<code>realm_smmu_cmdq_issue_cmdlist()</code> 会筛选出需要转发到 R-CMDQ 的命令：</p>
+
+<pre><code>static bool realm_smmu_need_forward(struct arm_smmu_device *smmu, u64 cmd0, u64 cmd1)
+{
+    // 根据 opcode 判断是否需要转发:
+    switch (opcode) {
+    case CMDQ_OP_TLBI_EL2_ALL:   // EL2 全局 TLB 失效 → 始终转发
+    case CMDQ_OP_TLBI_NSNH_ALL:  // Non-Secure Non-Hyp 全局 → 始终转发
+    case CMDQ_OP_CFGI_ALL:       // 全 STE 失效 → 始终转发
+        return true;
+
+    case CMDQ_OP_TLBI_S2_IPA:    // S2 IPA 范围内失效
+        return is_realm_vmid(smmu, FIELD_GET(CMDQ_TLBI_0_VMID, cmd0));
+
+    case CMDQ_OP_CFGI_STE:       // 特定 STE 失效
+        return is_realm_sid(smmu, FIELD_GET(CMDQ_CFGI_0_SID, cmd0));
+
+    // ... ATC_INV, CFGI_CD, RESUME, PRI_RESP 同理
+    }
+}
+
+// 筛选出需转发的命令 → 打包 → rmi_smmu_send_cmdlist() → RMM
+int realm_smmu_cmdq_issue_cmdlist(...)
+{
+    for (i = 0; i < n; i++) {
+        if (realm_smmu_need_forward(smmu, cmd0, cmd1))
+            rcmds[forward_cnt++] = ...;
+    }
+    // 通过 SMC 将筛选后的命令列表发送到 R-CMDQ
+    rmi_smmu_send_cmdlist(smmu->realm.ioaddr, rcmds_pa, forward_cnt, sync);
+}</code></pre>
+
+<h3>5.4 Realm STE 写入</h3>
+
+<pre><code>void realm_smmu_write_ste(struct arm_smmu_master *master, u32 sid,
+                           const struct arm_smmu_ste *target)
+{
+    // 1. 仅对 Realm/PCi-NS 设备操作
+    // 2. 如果是二级流表，先确保 L2 table 已分配 (realm_smmu_init_l2_strtab)
+    // 3. 复制 STE，替换 S2TTB 为 NS VTTBR
+    // 4. rmi_smmu_ste_write() → SMC → RMM 写入 Realm 流表
+}</code></pre>
+
+<h3>5.5 Realm 设备 Attach/Detach</h3>
+
+<pre><code>void realm_smmu_attach_dev(...)
+{
+    // 1. 仅在 S2 domain 时处理
+    // 2. 在 attached bitmaps 中记录 SID 和 VMID
+    // 3. 更新 realm->forward_cmd 标志
+    // 4. rme_add_dev_entry() / rme_remove_dev_entry()
+}
+void realm_smmu_domain_clear(...)
+{
+    // 从 SMMU 的 vmid_bitmap 中清除 domain 的 VMID
+}</code></pre>
+
+<h3>5.6 中断处理</h3>
+<ul>
+  <li><strong>R-EVTQ</strong>: <code>arm_r_smmu_revtq_thread()</code> 通过 <code>rmi_smmu_read_event()</code> 读取 Realm 事件，打印日志</li>
+  <li><strong>R-GERROR</strong>: <code>arm_smmu_realm_gerror_handler()</code> 读取 R_GERROR 寄存器，处理各类错误</li>
+  <li>MSI 中断通过 <code>platform_msi_domain_alloc_range_irqs</code> 分配，写入 R-EVTQ/R-GERROR 的 MSI 配置寄存器</li>
+</ul>
+
+</section>
+
+<!-- ============ SECTION 6 ============ -->
+<section id="sec6">
+<h2><span class="sec-num">6</span> hisi-cca-da.c — HiSilicon CCA Domain Access (1456 行)</h2>
+
+<div class="info-card purple">
+  <div class="label">Tag</div>
+  <div class="title">CCA DA — 设备委派与 DMA 管理</div>
+  <p>位于 <code>arch/arm64/kvm/hisi-cca-da.c</code>，是 CCA 方案中设备委派 (Device Delegation) 的核心实现。管理 PCIe 设备在非安全世界与 Realm 世界之间的所有权转移。</p>
+</div>
+
+<h3>6.1 设计思想</h3>
+
+<p>CCA DA 模块解决的核心问题：<strong>如何在 CCA 架构下安全地将物理 PCIe 设备分配给 Realm VM</strong>。</p>
+
+<p>关键设计模式：</p>
+<ul>
+  <li><strong>两级哈希表追踪</strong>: <code>g_root_dev_htable</code> (root device → count/delegation) + <code>g_realm_dev_htable</code> (device + vttbr → realm entry)</li>
+  <li><strong>RMI 设备委派</strong>: 通过 <code>rmi_dev_delegate/rmi_dev_attach</code> 等 SMC 调用将设备所有权转给 RMM</li>
+  <li><strong>MMIO 访问拦截</strong>: 对已委派的 Realm 设备，<code>readl/writel</code> 等操作被挂钩到 RMM (通过 <code>rmi_dev_mmio_read/write</code>)</li>
+  <li><strong>PCI 配置空间保护</strong>: <code>ccada_pci_generic_config_read/write</code> 将 Config 访问转发到 RMM 保护</li>
+  <li><strong>MSI/MSI-X 重映射</strong>: Realm 设备的 MSI IOVA 被重新映射，通过 <code>rme_get_msi_iova()</code> 在 RMM 分配的页面上设置</li>
+</ul>
+
+<h3>6.2 设备委派生命周期</h3>
+
+<div class="mermaid-box">
+<div class="mermaid">
+flowchart LR
+  A["1. kvm_rme_assign_device()"] --> B["获取 Root Port<br/>rme_get_root_dev()"]
+  B --> C["rme_dev_assign()<br/>root dev 计数+委派"]
+  C --> D["realm_add_dev_to_list()<br/>加入 Realm 设备列表"]
+  D --> E["realm_unbind_drivers()<br/>解绑原生驱动 (host)"]
+  E --> F["rme_dev_delegate()<br/>→ RMI 委派到 RMM"]
+  F --> G["🎯 realm_attach_devs()<br/>→ RMI 附加到 Realm<br/>(在 RD 创建后)"]
+  G --> H["设备在 Realm 中运行"]
+  H --> I["kvm_rme_unassign_device()<br/>rmi_dev_detach()"]
+  I --> J["realm_destroy_dev_list()<br/>rmi_dev_undelegate()"]
+</div>
+</div>
+
+<h3>6.3 关键函数分析</h3>
+
+<table>
+  <tr><th>函数</th><th>行数</th><th>作用</th></tr>
+  <tr><td><code>kvm_rme_assign_device()</code></td><td>845-894</td><td>主入口：从 VFIO/KVM 调用，完成设备委派全流程</td></tr>
+  <tr><td><code>kvm_rme_unassign_device()</code></td><td>897-908</td><td>撤销设备委派</td></tr>
+  <tr><td><code>rme_root_dev_delegate()</code></td><td>540-580</td><td>委派整个 Root Port 下所有设备，处理 <code>RMI_ERROR_DEV_INFO</code> 重试</td></tr>
+  <tr><td><code>realm_attach_devs()</code></td><td>922-970</td><td>Realm 创建 (RD ready) 后，为列表中的每个设备调用 <code>rmi_dev_attach()</code></td></tr>
+  <tr><td><code>rme_dev_delegate()</code></td><td>776-815</td><td>单个 PCIe 设备的委派，处理热插场景</td></tr>
+  <tr><td><code>is_hisi_pcipc_ns()</code></td><td>94-109</td><td>判断设备是否在 PCIe Non-Secure 白名单中</td></tr>
+  <tr><td><code>rme_dev_pci_read_msi_msg()</code></td><td>1081-1097</td><td>通过 RMI 读取委派设备的 MSI-X table entry</td></tr>
+  <tr><td><code>rme_dev_pci_write_msg_msi()</code></td><td>1117-1146</td><td>通过 RMI 写入委派设备的 MSI-X table entry，处理 IOVA remapping</td></tr>
+  <tr><td><code>rme_dev_fix_msi_address()</code></td><td>1148-1160</td><td>修正 MSI 地址为 Realm 的 IOVA 空间</td></tr>
+</table>
+
+<h3>6.4 PCIe 拓扑遍历</h3>
+
+<pre><code>// 关键辅助函数: 递归遍历 PCIe 拓扑
+static int get_child_devices_rec(struct pci_dev *dev, uint16_t *devs, ...)
+{
+    if (dev->subordinate) {  // 是 Bridge
+        list_for_each_entry(child, &bus->devices, bus_list) {
+            get_child_devices_rec(child, devs, max_devs, ndev, pdevs);
+        }
+    } else {  // 是 Endpoint
+        devs[(*ndev)++] = pci_dev_id(dev);
+    }
+}
+
+// HiSilicon 加速器特殊处理 (ZIP/SEC/HPRE)
+// PF + VF 一起委派
+static int get_vf_devices(struct pci_dev *pf_dev, ...);</code></pre>
+
+<h3>6.5 MMIO 访问钩子</h3>
+
+<p>委派设备的 MMIO 访问通过 RMI 转发到 RMM 执行，确保 Non-Secure 世界无法访问 Realm 设备的 MMIO 空间：</p>
+
+<pre><code>// 对 delegated 设备的 readl/writel 钩子
+u32 rme_readl_hook(void __iomem *addr, struct pci_dev *pdev)
+{
+    if (is_support_rme() && is_dev_delegated(pdev))
+        // 使用 AT S1E1W 将 VA 转为 PA
+        // 然后通过 rmi_dev_mmio_read() SMC 调用让 RMM 读取
+        return rme_mmio_read32(rme_mmio_va_to_pa(addr), pdev);
+
+    return readl(addr); // 普通设备走正常路径
+}</code></pre>
+
+<p>支持的钩子全家桶：<code>rme_readl_hook</code>, <code>rme_writel_hook</code>, <code>rme_read32be_hook</code>, <code>rme_write32be_hook</code>, <code>rme_lo_hi_writeq_hook</code>, <code>rme_hi_lo_writeq_hook</code>, <code>rme_lo_hi_readq_hook</code>, <code>rme_read8_hook</code>, <code>rme_writeq_hook</code>, <code>__rme_raw_writel_hook</code>, <code>__rme_iowrite64_copy_hook</code>。</p>
+
+</section>
+
+<!-- ============ SECTION 7 ============ -->
+<section id="sec7">
+<h2><span class="sec-num">7</span> RMI 接口与 SMC 层</h2>
+
+<div class="info-card">
+  <div class="label">Infrastructure</div>
+  <div class="title">Realm Management Interface — SMC 调用封装</div>
+  <p>位于 <code>arch/arm64/include/asm/rmi_cmds.h</code> (1216 行)，封装了所有到 RMM 固件的 SMC 调用。使用 <code>arm_smccc_1_2_smc()</code> 进行 8 参数 64 位 SMC 调用。</p>
+</div>
+
+<h3>7.1 SMC 调用分类</h3>
+
+<table>
+  <tr><th>分类</th><th>RMI 函数</th><th>SMC 子功能码</th><th>说明</th></tr>
+  <tr><td rowspan="6"><strong>SMMU 寄存器</strong></td><td><code>rmi_smmu_reg_read32/64</code></td><td><code>CCADA_SMMU_REG_RW</code> + READ</td><td>读 R-SMMU 寄存器</td></tr>
+  <tr><td><code>rmi_smmu_reg_write32/64</code></td><td><code>CCADA_SMMU_REG_RW</code> + WRITE</td><td>写 R-SMMU 寄存器</td></tr>
+  <tr><td><code>rmi_smmu_send_cmdlist</code></td><td><code>CCADA_SMMU_SEND_CMDLIST</code></td><td>提交 R-CMDQ 命令列表</td></tr>
+  <tr><td><code>rmi_smmu_read_event</code></td><td><code>CCADA_SMMU_READ_EVENT</code></td><td>读取 Realm 事件</td></tr>
+  <tr><td><code>rmi_smmu_ste_write</code></td><td><code>CCADA_SMMU_STE_WRITE</code></td><td>写入 Realm STE</td></tr>
+  <tr><td><code>rmi_smmu_config</code></td><td><code>CCADA_SMMU_CONFIG</code></td><td>配置 STR/Queue 初始化/反初始化</td></tr>
+  <tr><td rowspan="6"><strong>设备管理</strong></td><td><code>rmi_dev_init</code></td><td><code>CCADA_DEV_INIT</code></td><td>初始化设备信息页</td></tr>
+  <tr><td><code>rmi_dev_delegate</code></td><td><code>CCADA_DEV_DELEGATE</code></td><td>委派设备到 Realm</td></tr>
+  <tr><td><code>rmi_dev_attach</code></td><td><code>CCADA_DEV_ATTACH</code></td><td>附加设备到已创建的 Realm</td></tr>
+  <tr><td><code>rmi_dev_detach</code></td><td><code>CCADA_DEV_DETACH</code></td><td>从 Realm 分离设备</td></tr>
+  <tr><td><code>rmi_dev_mmio_read</code></td><td><code>CCADA_DEV_MMIO_READ</code></td><td>读取 Realm 设备 MMIO</td></tr>
+  <tr><td><code>rmi_dev_mmio_write</code></td><td><code>CCADA_DEV_MMIO_WRITE</code></td><td>写入 Realm 设备 MMIO</td></tr>
+  <tr><td><strong>SMMU 页表</strong></td><td><code>rmi_smmu_map</code></td><td><code>CCADA_SMMU_MAP</code></td><td>Realm S2 页表映射</td></tr>
+</table>
+
+<h3>7.2 调用约定</h3>
+
+<pre><code>// 所有 RMI SMC 调用的顶层格式:
+static inline int rmi_smmu_reg_read32(unsigned long ioaddr, unsigned long reg, u32 *value)
+{
+    struct arm_smccc_1_2_regs regs = {
+        SMC_RMI_HISI_EXT,         // x0: Function ID (HiSilicon 扩展)
+        CCADA_SMMU_REG_RW,        // x1: 子功能
+        ioaddr,                   // x2: R-SMMU 寄存器 PA
+        MMIO_REG_READ,            // x3: 读操作
+        reg,                      // x4: 寄存器偏移
+        0,                        // x5: (写时传 value)
+        SMMU_R_REG_32_BIT,        // x6: 位宽
+    };
+    arm_smccc_1_2_smc(&regs, &regs);
+
+    if (regs.a0 == 0)
+        *value = regs.a1;        // a0=0 表示成功, a1=返回值
+    return regs.a0;
+}</code></pre>
+
+</section>
+
+<!-- ============ SECTION 8 ============ -->
+<section id="sec8">
+<h2><span class="sec-num">8</span> 整体数据流</h2>
+
+<h3>8.1 全栈架构层次图</h3>
+
+<div class="mermaid-box">
+<div class="mermaid">
+flowchart TB
+  subgraph "User Space"
+    A["QEMU/KVM User"]
+    B["iommufd 用户态<br/>IOMMU_HWPT_ALLOC_NESTED"]
+  end
+
+  subgraph "Kernel EL1 (Non-Secure)"
+    C["IOMMU Core / VFIO"]
+    D["arm_smmu_domain_alloc_paging"]
+    E["arm_smmu_attach_dev"]
+    F["arm_smmu_cmdq_issue_cmdlist"]
+    G["arm_smmu-iommufd.c<br/>arm_vsmmu / nested domain"]
+    H["hisi-cca-da.c<br/>设备委派 / MMIO钩子"]
+    I["arm-r-smmu-v3.c<br/>命令转发 / STE代理"]
+    J["arm-smmu-v3.c<br/>主驱动 / 队列 / 流表"]
+  end
+
+  subgraph "EL2 (Hypervisor)"
+    K["KVM + RMM"]
+    L["smc → RMM 固件"]
+  end
+
+  subgraph "Hardware"
+    M["SMMUv3 硬件"]
+    N["PCIe 设备"]
+    P["RMM Firmware<br/>(Realm Management Monitor)"]
+  end
+
+  A -->|"VFIO_GROUP_SET_CONTAINER"| C
+  B -->|"ioctl"| G
+  C --> D
+  D --> E
+  E --> J
+  G -->|"cache_invalidate"| F
+  G -->|"attach_nested"| J
+  H -->|"kvm_rme_assign_device"| I
+  H -->|"rme_readl/writel_hook"| L
+  I -->|"rmi_smmu_*"| L
+  J -->|"mmio write"| M
+  L --> P
+  P -->|"控制"| M
+  M --> N
+  J --> F
+  F --> M
+</div>
+</div>
+
+<h3>8.2 命令转发数据流</h3>
+
+<div class="mermaid-box">
+<div class="mermaid">
+sequenceDiagram
+    participant NS as NS SMMU 驱动
+    participant CS as CMDQ 核心
+    participant R as R-SMMU (arm-r-smmu-v3)
+    participant RMM as RMM 固件
+    participant HW as SMMUv3 HW
+
+    NS->>CS: arm_smmu_cmdq_issue_cmdlist(cmds)
+    CS->>CS: 写入 NS CMDQ + update PROD
+    Note over CS: 同时调用 realm_smmu_cmdq_issue_cmdlist()
+
+    CS->>R: realm_smmu_cmdq_issue_cmdlist()
+    R->>R: 遍历命令，need_forward? 筛选
+    Note over R: 检查 SID/VMID 位图
+
+    alt 需转发的命令 (TLBI/CFGI)
+        R->>RMM: rmi_smmu_send_cmdlist() [SMC]
+        RMM->>RMM: 写入 R-CMDQ + 执行
+        RMM-->>R: return
+    else 不转发的命令
+        R-->>CS: return 0 (跳过)
+    end
+
+    CS->>HW: 等待 NS CMDQ SYNC
+    HW-->>CS: CONS update / MSI
+</div>
+</div>
+
+<h3>8.3 设备委派完整时序</h3>
+
+<div class="mermaid-box">
+<div class="mermaid">
+sequenceDiagram
+    participant VM as VMM/QEMU
+    participant KVM as KVM + CCA DA
+    participant RMM as RMM 固件
+
+    VM->>KVM: kvm_rme_assign_device(pdev)
+    KVM->>KVM: rme_get_root_dev(pdev)
+    KVM->>KVM: rme_dev_assign(root_dev, kvm)
+    KVM->>KVM: realm_unbind_drivers(root_dev)
+    KVM->>RMM: rmi_dev_delegate(bdf, root_bdf)
+    RMM-->>KVM: OK
+
+    Note over VM,RMM: Realm 创建中...
+
+    VM->>KVM: KVM_CREATE_REALM
+    KVM->>RMM: RMI 创建 Realm Descriptor (RD)
+
+    KVM->>KVM: realm_attach_devs(realm)
+    KVM->>RMM: rmi_dev_attach(bdf, rd, smmu_addr, vmid)
+    RMM-->>KVM: OK
+    Note over RMM: RMM 配置 SMMU STE 指向 Realm 的 S2 页表
+
+    VM->>KVM: Guest 启动，Realm 中设备 DMA
+    Note over VM,RMM: MMIO 访问通过 rmi_dev_mmio_read/write 代理
+    Note over VM,RMM: MSI 写通过 rme_dev_pci_write_msg_msi 重映射
+</div>
+</div>
+
+</section>
+
+<!-- ============ SECTION 9 ============ -->
+<section id="sec9">
+<h2><span class="sec-num">9</span> 关键差异总结</h2>
+
+<h3>9.1 三个 SMMU 驱动变体对比</h3>
+
+<table>
+  <tr><th>维度</th><th>arm-smmu-v3.c (标准)</th><th>arm-smmu-v3-iommufd.c</th><th>arm-r-smmu-v3.c (Realm)</th></tr>
+  <tr><td><strong>目的</strong></td><td>标准 Linux IOMMU 驱动</td><td>嵌套翻译 / vSMMU 接口</td><td>CCA Realm SMMU 隔离</td></tr>
+  <tr><td><strong>编译条件</strong></td><td>CONFIG_ARM_SMMU_V3</td><td>CONFIG_ARM_SMMU_V3_IOMMUFD</td><td>CONFIG_HISI_CCADA_HOST</td></tr>
+  <tr><td><strong>寄存器访问</strong></td><td>直接 MMIO (readl/writel)</td><td>通过主驱动</td><td>RMI SMC 调用</td></tr>
+  <tr><td><strong>命令队列</strong></td><td>主 CMDQ + 可选 ECMDQ</td><td>复用主 CMDQ</td><td>独立 R-CMDQ (RMM 管理)</td></tr>
+  <tr><td><strong>流表</strong></td><td>线性/二级，NS STE</td><td>添加 NESTED 类型 STE</td><td>独立 Realm STE (RMM 写入)</td></tr>
+  <tr><td><strong>页表管理</strong></td><td>io-pgtable (S1/S2)</td><td>S2 parent + 用户 S1 CD</td><td>RMM 管理的 Realm S2</td></tr>
+  <tr><td><strong>中断</strong></td><td>有线 + MSI</td><td>复用主驱动中断</td><td>独立 R-EVTQ/R-GERROR MSI</td></tr>
+  <tr><td><strong>代码量</strong></td><td>5907 行</td><td>412 行</td><td>821 行</td></tr>
+  <tr><td><strong>主要作者</strong></td><td>ARM (Will Deacon)</td><td>NVIDIA</td><td>Qualcomm / HiSilicon</td></tr>
+</table>
+
+<h3>9.2 驱动文件结构</h3>
+
+<pre><code>drivers/iommu/arm/arm-smmu-v3/
+├── arm-smmu-v3.c          # 主驱动 (5907 行) — IOMMU 核心
+├── arm-smmu-v3.h          # 头文件 (1135 行) — 寄存器/结构体定义
+├── arm-smmu-v3-iommufd.c  # IOMMUFD 接口 (412 行) — 嵌套翻译
+├── arm-smmu-v3-sva.c      # SVA 支持 — Shared Virtual Addressing
+├── arm-smmu-v3-test.c     # KUnit 测试
+├── arm-r-smmu-v3.c        # Realm SMMU (821 行) — CCA 扩展
+├── arm-r-smmu-v3.h        # R-SMMU 头文件 (86 行)
+├── arm-s-smmu-v3.c        # S-SMMU (Secure world) — VIRTCCA
+├── arm-s-smmu-v3.h
+└── Makefile
+
+arch/arm64/kvm/
+├── hisi-cca-da.c          # CCA Domain Access (1456 行) — 设备委派
+
+arch/arm64/include/asm/
+├── rmi_cmds.h             # RMI SMC 调用封装 (1216 行)
+├── hisi_cca_da.h          # CCA DA 头文件
+├── rmi_smc.h              # RMI SMC 功能码定义
+
+include/linux/
+└── cca_cvm_domain.h       # CCA 全局 API 声明</code></pre>
+
+</section>
+
+<!-- ============ FOOTER ============ -->
+<div style="text-align:center; padding: 40px 0 20px; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 13px;">
+  <p>分析基于 OpenEuler OLK-6.6 内核 · 2026 年</p>
+  <p style="margin-top:4px;">文件总分析量: arm-smmu-v3.c + arm-smmu-v3.h + arm-smmu-v3-iommufd.c + arm-r-smmu-v3.c/.h + hisi-cca-da.c + rmi_cmds.h = <strong>~11,000 行</strong></p>
+</div>
+
+</div><!-- /container -->
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      background: '#161b22',
+      primaryColor: '#58a6ff',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#3fb950',
+      tertiaryColor: '#bc8cff',
+      clusterBkg: '#0d1117',
+      clusterBorder: '#30363d',
+      nodeBorder: '#30363d',
+      nodeTextColor: '#e6edf3',
+      edgeLabelBackground: '#161b22',
+    }
+  });
+</script>
+
+</body>
+</html>
